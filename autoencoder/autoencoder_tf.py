@@ -110,7 +110,6 @@ class AutoEncoder():
     return history 
 
 
-
 if __name__ == "__main__":
   ae = AutoEncoder(input_dim=(28, 28, 1),
                    encoder_conv_filters=[32, 64, 64, 64],
