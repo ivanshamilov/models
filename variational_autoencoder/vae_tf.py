@@ -109,12 +109,13 @@ class VariationalAutoEncoder():
 
   def mse_loss(y_true, y_pred):
     """
-    Reconstruction loss - Mean Squared Error
+    Reconstruction / Generative loss - Mean Squared Error
     """
     return K.mean(K.square(y_true - y_pred), axis=[1, 2, 3])
   
   def kl_loss(y_true, y_pred):
     """
+    Latent loss
     Kullback-Leibler Divergence - measures how much one probability distribution differs from another.
     In this case, we're measuring how big is the difference between distributions in latent space and 
     a standard normal one. 
