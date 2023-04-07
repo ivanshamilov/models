@@ -14,6 +14,15 @@ from typing import Tuple, List
 from tqdm import tqdm
 
 
+class Sampling(nn.Module):
+  def __init__(self, shape):
+    super(Sampling, self).__init__()
+    self.epsilon = nn.Parameter(torch.normal(mean=0.0, std=1.0, size=(shape,)))
+    
+  def forward(self, mu, log_var):
+    return mu + torch.exp(log_var / 2) * self.epsilon
+
+
 class Encoder(nn.Module):
   def __init__(self,
                input_dim: Tuple[int],
@@ -48,42 +57,40 @@ class Encoder(nn.Module):
       if use_dropout:
         self.encoder_layers.append(Dropout())
     
+    self.encoder_layers = nn.ModuleList(self.encoder_layers)
+
     # self.fc = Linear(in_features=64 * 7 * 7, out_features=z_dim)
 
     # Outputting mu and log_var for each point in a latent space
 
     self.fc1 = Linear(in_features=64 * 7 * 7, out_features=z_dim)
     self.fc2 = Linear(in_features=64 * 7 * 7, out_features=z_dim)
+    self.sampling = Sampling(shape=z_dim)
 
   def forward(self, x):
     for layer in self.encoder_layers:
       x = layer(x)
     
     self.shape_before_flatten = x.shape
-    x = x.view(1, -1)
-    # x = self.fc(x)
+    x = torch.flatten(x, start_dim=1)
+
     self.mu = self.fc1(x)
     self.log_var = self.fc2(x)
 
-    def sampling(*args):
-      mu, log_var = args
-      epsilon = torch.normal(mean=0.0, std=1.0, size=mu.shape)
-      return mu + torch.exp(log_var / 2) * epsilon
-    
-    x = sampling(self.mu, self.log_var)
+    x = self.sampling(self.mu, self.log_var)
     return x
 
   def kl_loss(self, y_true, y_pred):
     """
     Latent loss - Kullback-Leibler Divergence
     """
-    return -0.5 * torch.sum(1 + self.log_var - torch.square(self.mu) - torch.exp(self.log_var), dim=1)
+    return -0.5 * torch.sum(1 + self.log_var - torch.square(self.mu) - torch.exp(self.log_var), dim=(0, 1))
 
   def mse_loss(self, y_true, y_pred):
     """
     Reconstruction/Generative loss - MSE loss
     """
-    return torch.mean(torch.square(y_true - y_pred), dim=(1, 2, 3))
+    return torch.mean(torch.square(y_true - y_pred), dim=(0, 1, 2, 3))
 
 
 class Decoder(nn.Module):
@@ -120,11 +127,11 @@ class Decoder(nn.Module):
         self.decoder_layers.append(LeakyReLU())
       
     self.decoder_layers.append(ReLU())
+    self.decoder_layers = nn.ModuleList(self.decoder_layers)
 
   def forward(self, x):
     x = self.fc(x)
     x = x.view(self.shape_before_flatten)
-    assert x.ndim == 4
     for layer in self.decoder_layers:
       x = layer(x)
 
@@ -141,6 +148,7 @@ class AutoEncoder(nn.Module):
                decoder_conv_t_kernel_size: List[int],
                decoder_conv_t_strides: List[int],
                z_dim: int,
+               device: str,
                use_batch_norm: bool = False,
                use_dropout: bool = False):
     super(AutoEncoder, self).__init__()
@@ -153,6 +161,8 @@ class AutoEncoder(nn.Module):
                            decoder_conv_t_kernel_size=decoder_conv_t_kernel_size,
                            decoder_conv_t_strides=decoder_conv_t_strides,
                            z_dim=z_dim)
+    self.to(device)
+    self.device = device
 
   def forward(self, x):
     x = self.encoder(x)
@@ -160,25 +170,30 @@ class AutoEncoder(nn.Module):
     return x
 
   def loss_function(self, mse_loss_factor, y_true, y_pred):
-    return mse_loss_factor * self.encoder.mse_loss(y_true, y_pred) + self.encoder.kl_loss(y_true, y_pred)
+    mse_loss = self.encoder.mse_loss(y_true, y_pred)
+    kl_loss = self.encoder.kl_loss(y_true, y_pred)
+    return mse_loss_factor * mse_loss + kl_loss
 
-  def train(self, x_train, epochs, batch_size):
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    train_loss = []
-
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+  def train(self, dataloader, epochs, learning_rate=1e-3, mse_loss_factor=10):
+    train_losses = []
+    optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
     for epoch in tqdm(range(epochs)):
-      optimizer.zero_grad()
-      idx = np.random.choice(range(len(x_train)), batch_size)
-      x = x_train[idx]
-      output = self.forward(x)
-      loss = criterion(output, x)
-      train_loss.append(loss)
-      loss.backward()
-      optimizer.step()
+      epoch_loss = 0
+      for i, (x, _) in enumerate(dataloader):
+        optimizer.zero_grad()
+        x = x.to(self.device)
+        output = self.forward(x)
+        loss = self.loss_function(mse_loss_factor, x, output)
+        epoch_loss += loss.item()
+        loss.backward()
+        optimizer.step()
+        if i % 200 == 0:
+          print(f"{loss.item():4.8f}")
+      epoch_loss /= len(dataloader)
+      print(f"\nEpoch {epoch}: train_loss = {epoch_loss:4.8f}")
+      train_losses.append(epoch_loss)
 
-    return train_loss
+    return train_losses
 
 
 if __name__ == "__main__":
@@ -189,4 +204,5 @@ if __name__ == "__main__":
                             decoder_conv_t_filters=[64, 64, 32, 1],
                             decoder_conv_t_kernel_size=[3, 3, 3, 3],
                             decoder_conv_t_strides=[1, 2, 2, 1],
+                            device="cuda" if torch.cuda.is_available() else "cpu",
                             z_dim=2)
