@@ -94,11 +94,11 @@ class VariationalAutoEncoder():
     decoder_input = x = Input(shape=(self.z_dim, ), name="decoder_input")
     x = Dense(units=np.prod(self.shape_before_flatten), name="dense_1")(x)
     x = Reshape(self.shape_before_flatten)(x)
-
     for i in range(self.n_layers_decoder):
       conv_layer = Conv2DTranspose(filters=self.decoder_conv_t_filters[i],
                           kernel_size=self.decoder_conv_t_kernel_size[i],
                           strides=self.decoder_conv_t_strides[i],
+                          padding="same",
                           name=f"decoder_conv_t_{i}")
       x = conv_layer(x)
       if i < self.n_layers_decoder - 1:
@@ -107,37 +107,37 @@ class VariationalAutoEncoder():
     decoder_output = Activation("relu", name="relu_activation")(x)
     self.decoder = Model(decoder_input, decoder_output, name="decoder_network")
 
-  def mse_loss(y_true, y_pred):
-    """
-    Reconstruction / Generative loss - Mean Squared Error
-    """
-    return K.mean(K.square(y_true - y_pred), axis=[1, 2, 3])
-  
-  def kl_loss(y_true, y_pred):
-    """
-    Latent loss
-    Kullback-Leibler Divergence - measures how much one probability distribution differs from another.
-    In this case, we're measuring how big is the difference between distributions in latent space and 
-    a standard normal one. 
-    Goal - minimize the distance to make the latent space more dense (points in the latent space will be located close to each other).
-    """
-    return -0.5 * K.sum(1 + self.log_var - K.square(self.mu) - K.exp(self.log_var), axis=1)
-
-  def loss_function(mse_loss_factor,
-                    y_true, 
-                    y_pred):
-    return mse_loss_factor * self.mse_loss(y_true, y_pred) + self.kl_loss(y_true, y_pred)
-
   def compile(self, optimizer, mse_loss_factor=1):
-    self.model.compile(optimizer=optimizer, loss=partial(self.loss_function, mse_loss_factor), metrics=[self.mse_loss, self.kl_loss])
+
+    def mse_loss(y_true, y_pred):
+      """
+      Reconstruction / Generative loss - Mean Squared Error
+      """
+      return K.mean(K.square(y_true - y_pred), axis=[1, 2, 3])
+  
+    def kl_loss(y_true, y_pred):
+      """
+      Latent loss
+      Kullback-Leibler Divergence - measures how much one probability distribution differs from another.
+      In this case, we're measuring how big is the difference between distributions in latent space and 
+      a standard normal one. 
+      Goal - minimize the distance to make the latent space more dense (points in the latent space will be located close to each other).
+      """
+      return -0.5 * K.sum(1 + self.log_var - K.square(self.mu) - K.exp(self.log_var), axis=1)
+
+    def loss_function(y_true, 
+                      y_pred):
+      return mse_loss_factor * mse_loss(y_true, y_pred) + kl_loss(y_true, y_pred)
+
+    self.model.compile(optimizer=optimizer, loss=loss_function, 
+                       metrics=[mse_loss, kl_loss],
+                       experimental_run_tf_function=False)
 
   def fit(self, 
-          x_train, 
-          y_train, 
-          batch_size, 
+          dataloader, 
           epochs, 
-          callbacks_list):
-    history = self.model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, callbacks=callbacks_list)
+          callbacks_list=[]):
+    history = self.model.fit(dataloader.repeat(epochs), epochs=epochs, callbacks=callbacks_list)
     return history 
 
 
@@ -151,5 +151,5 @@ if __name__ == "__main__":
                                decoder_conv_t_strides=[1, 2, 2, 1],
                                z_dim=2)
                 
-  ae.compile(optimizer=Adam(learning_rate=0.001), mse_loss_factor=1)
-  # ae.fit(X_train, y_train, batch_size=32, epochs=10)
+  vae.compile(optimizer=Adam(learning_rate=0.001), mse_loss_factor=1)
+  # vae.fit(X_train, y_train, batch_size=32, epochs=10)
