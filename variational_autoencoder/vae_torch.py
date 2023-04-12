@@ -84,13 +84,13 @@ class Encoder(nn.Module):
     """
     Latent loss - Kullback-Leibler Divergence
     """
-    return -0.5 * torch.sum(1 + self.log_var - torch.square(self.mu) - torch.exp(self.log_var), dim=(0, 1))
+    return -0.5 * torch.sum(1 + self.log_var - torch.square(self.mu) - torch.exp(self.log_var))
 
   def mse_loss(self, y_true, y_pred):
     """
     Reconstruction/Generative loss - MSE loss
     """
-    return torch.mean(torch.square(y_true - y_pred), dim=(0, 1, 2, 3))
+    return torch.mean(torch.square(y_true - y_pred))
 
 
 class Decoder(nn.Module):
@@ -172,6 +172,7 @@ class AutoEncoder(nn.Module):
   def loss_function(self, mse_loss_factor, y_true, y_pred):
     mse_loss = self.encoder.mse_loss(y_true, y_pred)
     kl_loss = self.encoder.kl_loss(y_true, y_pred)
+    print(mse_loss, kl_loss)
     return mse_loss_factor * mse_loss + kl_loss
 
   def train(self, dataloader, epochs, learning_rate=1e-3, mse_loss_factor=10):
