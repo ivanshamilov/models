@@ -103,6 +103,9 @@ class Decoder(nn.Module):
                use_dropout: bool = False):
     super(Decoder, self).__init__()
 
+    self._paddings = [1 for _ in decoder_conv_t_filters]
+    self._o_paddings = [1 if decoder_conv_t_strides[i] > 1 else 0 for i in range(len(decoder_conv_t_filters))]
+
     self.shape_before_flatten = (-1, 64, 7, 7)
     self.fc = Linear(in_features=z_dim, out_features=np.prod(self.shape_before_flatten[1:]))
     self.decoder_layers = [
@@ -110,7 +113,8 @@ class Decoder(nn.Module):
                       out_channels=decoder_conv_t_filters[0], 
                       kernel_size=decoder_conv_t_kernel_size[0],
                       stride=decoder_conv_t_strides[0],
-                      padding=1)
+                      padding=self._paddings[0],
+                      output_padding=self._o_paddings[0])
     ]
 
     for i in range(1, len(decoder_conv_t_filters)):
@@ -119,9 +123,10 @@ class Decoder(nn.Module):
                         out_channels=decoder_conv_t_filters[i], 
                         kernel_size=decoder_conv_t_kernel_size[i],
                         stride=decoder_conv_t_strides[i],
-                        padding=1,
-                        output_padding=1 if decoder_conv_t_strides[i] > 1 else 0)
+                        padding=self._paddings[i],
+                        output_padding=self._o_paddings[i])
       )
+
 
       if i < len(decoder_conv_t_filters) - 1:
         self.decoder_layers.append(LeakyReLU())
