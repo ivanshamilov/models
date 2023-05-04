@@ -4,8 +4,6 @@ import torch.nn.functional as F
 
 import numpy as np
 
-from PIL import Image
-
 from torch.nn import Linear, Conv2d, ConvTranspose2d, Dropout, BatchNorm2d, LeakyReLU, ReLU
 from typing import Tuple, List
 
