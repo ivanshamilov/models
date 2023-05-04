@@ -12,6 +12,7 @@ from torch.nn import Linear, Conv2d, ConvTranspose2d, Dropout, BatchNorm2d, Leak
 from typing import Tuple, List
 
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 
 class Sampling(nn.Module):
@@ -84,7 +85,8 @@ class Encoder(nn.Module):
     """
     Latent loss - Kullback-Leibler Divergence
     """
-    return -0.5 * torch.sum(1 + self.log_var - torch.square(self.mu) - torch.exp(self.log_var))
+    # return -0.5 * torch.sum(1 + self.log_var - torch.square(self.mu) - torch.exp(self.log_var))
+    return F.kl_div(y_pred, y_true)
 
   def mse_loss(self, y_true, y_pred):
     """
@@ -177,26 +179,29 @@ class AutoEncoder(nn.Module):
   def loss_function(self, mse_loss_factor, y_true, y_pred):
     mse_loss = self.encoder.mse_loss(y_true, y_pred)
     kl_loss = self.encoder.kl_loss(y_true, y_pred)
-    print(mse_loss, kl_loss)
-    return mse_loss_factor * mse_loss + kl_loss
+    return mse_loss_factor * mse_loss + kl_loss, mse_loss, kl_loss
 
   def train(self, dataloader, epochs, learning_rate=1e-3, mse_loss_factor=10):
     train_losses = []
     optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
     for epoch in tqdm(range(epochs)):
-      epoch_loss = 0
+      epoch_loss, epoch_kl_loss, epoch_mse_loss = 0, 0, 0
       for i, (x, _) in enumerate(dataloader):
         optimizer.zero_grad()
         x = x.to(self.device)
         output = self.forward(x)
-        loss = self.loss_function(mse_loss_factor, x, output)
+        loss, mse_loss, kl_loss = self.loss_function(mse_loss_factor, x, output)
         epoch_loss += loss.item()
+        epoch_kl_loss += kl_loss.item()
+        epoch_mse_loss += mse_loss.item()
         loss.backward()
         optimizer.step()
-        if i % 200 == 0:
-          print(f"{loss.item():4.8f}")
+        if i % 500 == 0:
+          print(f"general loss: {loss.item():4.8f}, mse: {mse_loss.item():4.8f}, kl: {kl_loss.item():4.8f}")
       epoch_loss /= len(dataloader)
-      print(f"\nEpoch {epoch}: train_loss = {epoch_loss:4.8f}")
+      epoch_kl_loss /= len(dataloader)
+      epoch_mse_loss /= len(dataloader)
+      print(f"\nEpoch {epoch}: train_loss = {epoch_loss:4.8f}, mse_loss = {epoch_mse_loss:4.8f}, kl_loss={epoch_kl_loss:4.8f}")
       train_losses.append(epoch_loss)
 
     return train_losses
